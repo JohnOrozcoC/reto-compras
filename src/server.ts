@@ -150,12 +150,86 @@ app.post("/api/chat", async (req, res) => {
       sesion.tokens += reserva;
 
       const respuesta = await modelo.enviar(prompt, sesion.mensajes, definiciones);
-
+      //----- 
       if (!respuesta.llamadas.length) {
-        reply = respuesta.texto || "No recibí una respuesta de texto. Puedes reintentar.";
+        // Solo completamos automáticamente una petición explícita de procesar.
+        const casoSolicitado = mensaje.match(
+            /^procesa\s+(?:la\s+solicitud\s+)?["']?(sol-\d{3})\b/i
+        )?.[1];
+
+        const pideEsperar =
+            /\b(no|espera|antes|hasta|solo|solamente|revisa|mu[eé]stra|confirmaci[oó]n)\b/i
+            .test(mensaje);
+
+        const construccion = [...eventos].reverse().find((evento) => {
+            const args = z.object({ caso: z.string() }).safeParse(evento.argumentos);
+            return evento.nombre === "oc_construir_payload" &&
+            args.success && args.data.caso === casoSolicitado;
+        });
+
+        const preparada = z.object({
+            ok: z.literal(true),
+            data: z.object({
+            payload: z.record(z.string(), z.unknown()),
+            validacion: z.object({
+                apta: z.literal(true),
+                confirmaciones: z.array(z.unknown()).length(0),
+            }),
+            }),
+        }).safeParse(construccion?.resultado);
+
+        const intentoCrear = eventos.some(
+            (evento) => evento.nombre === "oc_crear"
+        );
+
+        if (
+            casoSolicitado &&
+            !pideEsperar &&
+            preparada.success &&
+            !intentoCrear &&
+            !obtenerPendiente(sessionId)
+        ) {
+            const argumentos = {
+            caso: casoSolicitado,
+            payload: preparada.data.data.payload,
+            confirmado: false,
+            };
+
+            // La herramienta vuelve a validar todos los controles.
+            const salida = await ejecutar(
+            "oc_crear", argumentos, { directory, sessionId }
+            );
+
+            const resultado: unknown = JSON.parse(salida);
+            const evento = {
+            nombre: "oc_crear",
+            argumentos,
+            resultado,
+            };
+
+            eventos.push(evento);
+            sesion.eventos.push(evento);
+
+            await mkdir(path.join(directory, "out"), { recursive: true });
+            await appendFile(
+            path.join(directory, "out", "log.jsonl"),
+            JSON.stringify({
+                sessionId,
+                origen: "backend_flujo_normal",
+                ...evento,
+                ts: new Date().toISOString(),
+            }) + "\n"
+            );
+
+            reply = "Resultado de procesar la solicitud:\n" +
+            JSON.stringify(resultado, null, 2);
+        } else {
+            reply = respuesta.texto ||
+            "No recibí una respuesta de texto. Puedes reintentar.";
+        }
         break;
       }
-
+      //----- 
       sesion.mensajes.push(...respuesta.llamadas);
 
       for (const llamada of respuesta.llamadas) {
