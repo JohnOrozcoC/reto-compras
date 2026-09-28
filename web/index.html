@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agente de compras</title>
+  <style>
+    body { font-family: system-ui; max-width: 900px; margin: 30px auto; padding: 16px; background: #f3f5f8; color: #17243b; }
+    article, details { background: white; padding: 16px; margin: 12px 0; border-radius: 10px; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+    form { display: flex; gap: 8px; }
+    input { flex: 1; padding: 12px; }
+    button { padding: 12px; cursor: pointer; }
+    #confirmacion { padding: 16px; background: #fff0bd; margin: 12px 0; }
+    #estado { color: #48566b; }
+  </style>
+</head>
+<body>
+  <h1>Agente de órdenes de compra</h1>
+  <p>Procesa sol-001 a sol-006. SAP simulado con controles de negocio.</p>
+  <main id="historial" aria-live="polite"></main>
+  <div id="confirmacion" hidden>
+    Revisa el payload y las excepciones antes de confirmar.
+    <button id="confirmar">Confirmar excepciones y crear</button>
+  </div>
+  <p id="estado"></p>
+  <form id="formulario">
+    <input id="mensaje" aria-label="Mensaje" placeholder="Procesa sol-004" required>
+    <button id="enviar">Enviar</button>
+  </form>
+  <script>
+    let sessionId;
+    let ocupado = false;
+    const historial = document.querySelector("#historial");
+    const aviso = document.querySelector("#confirmacion");
+
+    function agregar(titulo, texto) {
+      const articulo = document.createElement("article");
+      const encabezado = document.createElement("strong");
+      encabezado.textContent = titulo;
+      const contenido = document.createElement("pre");
+      contenido.textContent = texto;
+      articulo.append(encabezado, contenido);
+      historial.append(articulo);
+    }
+
+    async function enviar(message) {
+      if (ocupado) return;
+      ocupado = true;
+      document.querySelector("#enviar").disabled = true;
+      document.querySelector("#confirmar").disabled = true;
+      document.querySelector("#estado").textContent = "Pensando y ejecutando herramientas…";
+      agregar("Tú", message);
+
+      try {
+        const respuesta = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId, message })
+        });
+        const datos = await respuesta.json();
+        if (!respuesta.ok) throw new Error(datos.reply || "Error del servidor");
+        sessionId = datos.sessionId;
+
+        for (const llamada of datos.toolCalls || []) {
+          const detalle = document.createElement("details");
+          const resumen = document.createElement("summary");
+          resumen.textContent = llamada.nombre;
+          const contenido = document.createElement("pre");
+          contenido.textContent = JSON.stringify({
+            argumentos: llamada.argumentos,
+            resultado: llamada.resultado
+          }, null, 2);
+          detalle.append(resumen, contenido);
+          historial.append(detalle);
+        }
+
+        agregar("Agente", datos.reply);
+        aviso.hidden = !datos.needsConfirmation;
+      } catch (error) {
+        agregar("Error", error.message || "No se pudo completar la petición");
+      } finally {
+        ocupado = false;
+        document.querySelector("#enviar").disabled = false;
+        document.querySelector("#confirmar").disabled = false;
+        document.querySelector("#estado").textContent = "";
+      }
+    }
+
+    document.querySelector("#formulario").addEventListener("submit", event => {
+      event.preventDefault();
+      const input = document.querySelector("#mensaje");
+      const mensaje = input.value.trim();
+      if (!mensaje || ocupado) return;
+      input.value = "";
+      enviar(mensaje);
+    });
+
+    document.querySelector("#confirmar").addEventListener("click", () => enviar("confirmo"));
+  </script>
+</body>
+</html>
