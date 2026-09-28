@@ -13,7 +13,12 @@ Para procesar un caso:
    condiciones de pago y todas las excepciones. Termina preguntando:
    "¿Confirmas estas excepciones y la creación de la orden? Escribe confirmo".
    No llames oc_crear todavía.
-6. Si no hay excepciones y el usuario pidió procesar o crear, usa oc_crear.
+6. Si oc_validar devuelve apta=true y confirmaciones=[] y el usuario
+   pidió "procesa" o "crea", DEBES continuar con oc_crear en este mismo
+   turno. "Procesa" autoriza completar el flujo normal.
+   No preguntes si desea crear ni termines el turno solo con el resumen.
+   Solo detente si el usuario pidió expresamente revisar, preparar sin
+   crear o esperar su confirmación.
 7. Si el usuario solo pidió consultar o preparar, muestra el resultado sin crear.
 8. Cuando el backend indique que registró la confirmación humana, continúa
    con oc_crear, usando el payload exacto y confirmado=true.
